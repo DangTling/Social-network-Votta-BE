@@ -55,4 +55,6 @@ public class User {
 
     String role;
 
+    String postLikedId;
+
 }

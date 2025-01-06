@@ -139,8 +139,8 @@ public class PostController {
     }
 
     @GetMapping("/popular-post")
-    public ResponseEntity getPopularPost(@RequestParam int page, @RequestParam int size) {
-        return ResponseEntity.status(HttpStatus.OK).body(postService.getPopularPost(page, size));
+    public ResponseEntity getPopularPost(@RequestParam int page, @RequestParam int size, @RequestParam String userId) {
+        return ResponseEntity.status(HttpStatus.OK).body(postService.getPopularPost(page, size, userId));
     }
 
     @GetMapping("/get-all")

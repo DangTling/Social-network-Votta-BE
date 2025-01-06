@@ -12,7 +12,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.config.EnableMongoAuditing;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -33,7 +36,27 @@ public class PostService {
         Post newPost = postMapper.optionalToPost(request);
         User currentUser = userRepository.findById(currentUserId).get();
         newPost.setPostedBy(currentUser);
-        return postRepository.save(newPost);
+        Post savedPost = postRepository.save(newPost);
+
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            String recommendationUrl = "http://127.0.0.1:5000/add_post";
+            Map<String, String> payload = new HashMap<>();
+            payload.put("id", savedPost.getId());
+            payload.put("caption", savedPost.getCaption());
+            payload.put("tags", savedPost.getTags());
+            payload.put("nameUser", savedPost.getPostedBy().getName());
+
+            String response = restTemplate.postForObject(
+                    recommendationUrl,
+                    payload,
+                    String.class
+            );
+        } catch (Exception e) {
+            System.err.println("Error while calling microservice: "+e.getMessage());
+        }
+
+        return savedPost;
     }
 
     public Post editPost(String currentUserId, String postId, Post newPost) {
@@ -142,6 +165,8 @@ public class PostService {
             } else {
                 post.getLike().add(currentUser);
                 postRepository.save(post);
+                currentUser.setPostLikedId(postId);
+                userRepository.save(currentUser);
                 return "Successfully liked post";
             }
         }
@@ -219,13 +244,46 @@ public class PostService {
         }).collect(Collectors.toList());
     }
 
-    public FeedResponse getPopularPost(int page, int size) {
+    public FeedResponse getPopularPost(int page, int size, String userId) {
         Calendar calendar = Calendar.getInstance();
         Date endDate = calendar.getTime();
         calendar.add(Calendar.DAY_OF_WEEK, -365);
         Date startDate = calendar.getTime();
 
         int skip = (page-1)*size;
+
+        User currentUser = userRepository.findById(userId).orElse(null);
+
+        if (currentUser!=null && currentUser.getPostLikedId() != null) {
+            try {
+                Post likedPost = postRepository.findPostById(currentUser.getPostLikedId());
+
+                RestTemplate restTemplate = new RestTemplate();
+                String recommendationServiceUrl = "http://127.0.0.1:5000/search?page="+page;
+
+                Map<String, String> payload = new HashMap<>();
+                payload.put("caption", likedPost.getCaption());
+                payload.put("tags", likedPost.getTags());
+                payload.put("nameUser", likedPost.getPostedBy().getName());
+
+                List<String> response = restTemplate.postForObject(
+                        recommendationServiceUrl,
+                        payload,
+                        List.class
+                );
+                if (response != null && !response.isEmpty()) {
+                    List<Post> res = new ArrayList<>();
+                    for (String id : response) {
+                        Post post = postRepository.findPostById(id);
+                        res.add(post);
+                    }
+                    return new FeedResponse(res, postRepository.countTopPosts(startDate, endDate));
+                }
+            } catch (Exception e) {
+                System.err.println("Error while calling microservice: " + e.getMessage());
+                return new FeedResponse(postRepository.findTopPost(startDate, endDate, skip, size), postRepository.countTopPosts(startDate, endDate));
+            }
+        }
 
         return new FeedResponse(postRepository.findTopPost(startDate, endDate, skip, size), postRepository.countTopPosts(startDate, endDate));
     }
